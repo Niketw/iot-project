@@ -383,8 +383,7 @@ dependencies, and it is **itself a TD consumer**:
 
 - it reads `/things` and builds one card per gateway proxy, showing native protocol badges;
 - it finds each affordance's `readproperty`/`invokeaction` forms in the TD and polls or calls them;
-- it opens the **WebSocket** event forms (`ws://…:8081/…/events/…`) to show a live event log. node-wot sends
-  WebSocket events as *binary* frames, so the page sets `binaryType = "arraybuffer"` and decodes them as UTF-8 JSON;
+- it opens the **WebSocket** event forms (`ws://…:8081/…/events/…`) to show a live event log;
 - it controls the application through its TD (threshold, enabled, mode) and shows which protocol the app
   currently uses to reach the fan. That makes the protocol swap visible on screen.
 
