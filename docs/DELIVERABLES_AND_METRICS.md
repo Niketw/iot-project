@@ -24,7 +24,7 @@ One command produces every measurable result:
 | D2 | **Validated Thing Descriptions released as templates** | ✅ implemented | `things/templates/` (7 templates: sensor-MQTT, relay-CoAP, relay-MQTT, plug-HTTP, sim-device ×3). Validate: `./wotctl validate --live` → `results/td-validation.md` |
 | D3 | **Protocol-independent application with a recorded protocol-swap test** | ✅ implemented | `src/app/app.js`; automated test `./wotctl swap-test` → `results/swap-test-latest.md`; manual/video version: `./wotctl swap mqtt` (README "Demo script") |
 | D4 | **Overhead and scalability measurements** | ✅ tooling complete, run on the Pi | `./wotctl bench-latency`, `./wotctl bench-scale`, `./wotctl plots` → `results/latency-latest.md`, `results/scalability-latest.md`, `results/plots/` |
-| D5 | **Report or 4-page workshop paper + 2-minute demo video** | 📝 your write-up | `results/REPORT.md` gathers all tables and figures; paper outline and video script below |
+| D5 | **Report or 4-page workshop paper + 2-minute demo video** | 📝 draft written | **`WoT_Smart_Building_Gateway_Paper.docx`** (project root): full paper + video shot list (Appendix A). Swap in the Pi numbers from `results/REPORT.md` (yellow-highlighted placeholders mark what to update) |
 
 ### D1: Gateway with three mixed-protocol devices
 
