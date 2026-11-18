@@ -3,15 +3,20 @@
 All pin numbers below are **physical pin numbers** on the Pi's 40-pin header, with the BCM (GPIO) name in
 brackets. The software uses BCM numbers (`DHT_GPIO=4`, `RELAY_GPIO=17` in `config/wot.env`).
 
+> **Pin 17 is not GPIO 17.** Physical *pin 17* is a 3.3 V power pin (relay VCC). *GPIO 17* is the signal on
+> physical *pin 11* (relay IN). Power pins never appear in the software; only GPIO numbers do.
+
 ```
                     Raspberry Pi 40-pin header (pin 1 is next to the SD-card end, inner row)
-                         3V3  (1) (2)  5V
-                       GPIO2  (3) (4)  5V
-                       GPIO3  (5) (6)  GND
+     DHT22 VCC ──────  3V3  (1) (2)  5V
+                       GPIO2  (3) (4)  5V   ──── fan circuit (COM)
+                       GPIO3  (5) (6)  GND  ──── relay GND
      DHT22 DATA ──── GPIO4  (7) (8)  GPIO14
-                         GND  (9) (10) GPIO15
+     DHT22 GND ───────  GND  (9) (10) GPIO15
      Relay IN ────── GPIO17 (11) (12) GPIO18
-                      GPIO27 (13) (14) GND
+                      GPIO27 (13) (14) GND  ──── fan black (−)
+                      GPIO22 (15) (16) GPIO23
+     Relay VCC ───────  3V3 (17) (18) GPIO24
                          ...
 ```
 
@@ -51,9 +56,14 @@ cat /sys/bus/iio/devices/iio:device0/in_temp_input        # e.g. 23400 = 23.4 °
 
 | Relay module | Pi |
 |---|---|
-| VCC | pin 2 (5 V) |
+| VCC | **pin 17 (3.3 V)** |
 | GND | pin 6 (GND) |
 | IN (IN1) | pin 11 (GPIO 17) |
+
+Why 3.3 V and not 5 V: these boards switch off when IN is at the same voltage as their VCC. The Pi's signal
+only reaches 3.3 V, so a board powered from 5 V never fully switches off (see the next section). Pin 1 also
+carries 3.3 V but is used by the DHT22. If your relay doesn't click at 3.3 V, power VCC from pin 2 (5 V) and
+add the transistor (Fix C below).
 
 Fan circuit through the relay's switch contacts (screw terminals):
 
@@ -70,8 +80,55 @@ Fan circuit through the relay's switch contacts (screw terminals):
   (`RELAY_ACTIVE_HIGH=false`). If yours behaves inverted, set it to `true`.
 - At power-on, before the service starts, an active-low relay may click on briefly. That is normal; the service
   switches it off at start and again when it stops.
-- If the relay never switches off: the board needs a 5 V "high" level. Power the board's VCC from 3.3 V (pin 1)
-  instead, or use a board with a high/low-trigger jumper set to "high", or a 3.3 V relay module.
+- **If the relay never switches off** (LED stays on, no click, fan always runs), see the next section.
+
+### 5 V relay boards and the Pi's 3.3 V signal
+
+Many 5 V relay boards are active-low: IN pulled LOW = relay on, IN at **5 V** = relay off. The Pi can only
+raise IN to **3.3 V**. That leaves about 1.7 V across the board's input LED, which keeps the relay energised.
+So the relay stays on whatever the software does.
+
+**Confirm it first.** Pull the IN wire off GPIO 17 and touch it to 5 V (pin 2). If the relay switches off,
+this is the problem. IN goes into the relay board, not into the Pi, so this is safe.
+
+**Fix A: the board has a JD-VCC jumper** (a 3-pin header labelled `JD-VCC  VCC  GND`, jumper on the first two):
+
+| Wire | To |
+|---|---|
+| remove the jumper cap | |
+| `JD-VCC` | Pi pin 2 (5 V), powers the relay coil |
+| `VCC` (on the 3-pin header or the input header) | Pi pin 17 (3.3 V), powers the input LED |
+| `GND` | Pi pin 6 (GND) |
+| `IN` | Pi pin 11 (GPIO 17) |
+
+Keep `RELAY_ACTIVE_HIGH=false`. Now 3.3 V on IN fully switches the relay off.
+
+**Fix B: the board has a trigger jumper labelled `H` / `L` (or `HIGH` / `LOW`).** Move it to **H**, keep VCC
+on 5 V, and set `RELAY_ACTIVE_HIGH=true`.
+
+**No jumper, no parts: try powering the board from 3.3 V.** Move the relay's VCC wire from pin 2 (5 V) to
+the Pi's second 3.3 V pin, **pin 17** (pin 1 is taken by the DHT22); GND and IN stay as they are. Now the Pi's 3.3 V HIGH equals the board's supply, so the input
+LED switches fully off. Keep `RELAY_ACTIVE_HIGH=false`. Catch: the 5 V relay coil now gets only 3.3 V. Many
+boards still click reliably; some don't pull in, or chatter. If the polarity test clicks cleanly ON/OFF four
+times, you're done. If it doesn't, use Fix C.
+
+**Fix C: no jumper. Add an NPN transistor** (2N2222, BC547 or 2N3904 plus a 1 kΩ resistor; 330 Ω–2.2 kΩ also works):
+
+```
+ Pi pin 11 (GPIO17) ── 1 kΩ ── B (base)
+                               C (collector) ── relay IN
+                               E (emitter)   ── Pi pin 6 (GND)
+ relay VCC ── Pi pin 2 (5 V),   relay GND ── Pi pin 6 (GND)
+```
+
+GPIO HIGH turns the transistor on, which pulls IN to GND and energises the relay. GPIO LOW turns it off, and
+the board pulls IN up to 5 V. The Pi never sees 5 V. Set `RELAY_ACTIVE_HIGH=true`. 2N2222 and 2N3904 in
+the TO-92 package, flat face towards you and legs down, are **E B C** from left to right; BC547 is **C B E**.
+
+**Fix D: LED instead of relay** (for the demo). See the LED section below; set `RELAY_ACTIVE_HIGH=true`.
+
+After any fix: `sudo systemctl stop wot-relay`, run `.venv/bin/python devices/relay_polarity_test.py`, check
+the relay clicks with the ON/OFF phases, then `sudo systemctl start wot-relay`.
 
 ## LED instead of the relay → GPIO 17
 

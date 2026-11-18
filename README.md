@@ -48,11 +48,16 @@ No second Pi or ESP32 is needed — everything runs on one Pi. The HTTP smart pl
 | DHT22 **VCC** (+) | pin 1 (3.3 V) | |
 | DHT22 **DATA** (out) | pin 7 | **GPIO 4** |
 | DHT22 **GND** (−) | pin 9 (GND) | |
-| Relay **VCC** | pin 2 (5 V) | |
+| Relay **VCC** | **pin 17 (3.3 V)** — not 5 V, see note below | |
 | Relay **GND** | pin 6 (GND) | |
 | Relay **IN** | pin 11 | **GPIO 17** |
 | Fan **red** ← Relay **NO**, Relay **COM** ← | pin 4 (5 V) | |
 | Fan **black** | pin 14 (GND) | |
+
+*Why relay VCC goes to 3.3 V:* most relay boards switch off only when IN reaches their own supply voltage,
+and the Pi's signal tops out at 3.3 V. On 5 V the relay stays on whatever the software does. Physical
+**pin 17** (3.3 V power) is not **GPIO 17** (the signal on pin 11). If the relay won't click at 3.3 V, see
+[docs/WIRING.md](docs/WIRING.md#5-v-relay-boards-and-the-pis-33-v-signal) (transistor fix).
 
 *LED instead of relay:* GPIO 17 (pin 11) → 330 Ω → LED long leg; LED short leg → GND (pin 14).
 Then set `RELAY_ACTIVE_HIGH=true` in `config/wot.env`.
@@ -180,7 +185,7 @@ threshold/hysteresis, ports, sensor backend, application mode. After editing: `.
 |---|---|
 | `sensor backend: simulated` in `wotctl status` | Reboot after install; check DATA is on GPIO 4 and VCC on 3.3 V; `ls /sys/bus/iio/devices/` should show a device. Or try `bash install.sh --adafruit-dht`. |
 | Relay clicks the wrong way round (on when it should be off) | Flip `RELAY_ACTIVE_HIGH` in `config/wot.env`, `./wotctl restart relay`. |
-| Relay never switches off | Some 5 V relay boards don't release with a 3.3 V signal — power the board's VCC from 3.3 V (pin 1) or use the board's "H/L trigger" jumper set to high. |
+| Relay never switches off (LED stays on, no click) | The board is powered from 5 V but the Pi's signal only reaches 3.3 V. Power relay VCC from **pin 17 (3.3 V)**. If it then doesn't click at all, power VCC from pin 2 (5 V) and add an NPN transistor — see [docs/WIRING.md](docs/WIRING.md#5-v-relay-boards-and-the-pis-33-v-signal). |
 | Dashboard not reachable from the PC | Use the IP from `./wotctl urls`; the PC must be on the same network. |
 | A service is `failed` | `./wotctl logs <service>` shows why. |
 | Pi's IP address changed | Nothing to do — TDs are re-generated with the current IP when services restart (`./wotctl restart`). |
