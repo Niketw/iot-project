@@ -128,25 +128,42 @@ class CoapHub:
     _hubs = {}
 
     @classmethod
-    async def get(cls, port):
+    async def get(cls, port, host_hint=None):
         if port not in cls._hubs:
-            hub = cls(port)
+            hub = cls(port, host_hint)
             await hub.start()
             cls._hubs[port] = hub
         return cls._hubs[port]
 
-    def __init__(self, port):
+    def __init__(self, port, host_hint=None):
         import aiocoap.resource as resource
         self.port = port
+        self.host_hint = host_hint  # the host in the TD's coap:// hrefs, i.e. the address clients will use
         self.site = resource.Site()
         self.resources = {}
 
     async def start(self):
+        """Bind the CoAP server. Tries IPv6 "any" first (dual-stack: also serves IPv4), then the IPv4
+        address from the TD hrefs - needed on Pis with IPv6 disabled ("no local bindable address found
+        for ::"). aiocoap's IPv4 transport cannot bind to 0.0.0.0, so a concrete address is used.
+        COAP_BIND may override this with a comma-separated list of addresses to try in order."""
         import os
         import aiocoap
-        bind_host = os.environ.get("COAP_BIND") or ("127.0.0.1" if os.name == "nt" else "::")
-        self.ctx = await aiocoap.Context.create_server_context(self.site, bind=(bind_host, self.port))
-        log.info("CoAP server listening on udp/%d", self.port)
+        hint = self.host_hint or "127.0.0.1"
+        default = hint if os.name == "nt" else f"::,{hint}"
+        hosts = [h.strip() for h in (os.environ.get("COAP_BIND") or default).split(",") if h.strip()]
+        last_exc = None
+        for host in hosts:
+            # an IPv4 address needs a transport that can open an IPv4 socket (udp6 is IPv6-only)
+            transports = ["simplesocketserver"] if ":" not in host else None
+            try:
+                self.ctx = await aiocoap.Context.create_server_context(self.site, bind=(host, self.port), transports=transports)
+                log.info("CoAP server listening on udp/%d (bound to %s)", self.port, host)
+                return
+            except Exception as exc:  # e.g. aiocoap.error.ResolutionError when IPv6 is disabled
+                last_exc = exc
+                log.warning("CoAP bind to %s failed (%s: %s) - trying next address", host, type(exc).__name__, exc)
+        raise RuntimeError(f"could not bind CoAP server on port {self.port} (tried {', '.join(hosts)})") from last_exc
 
     def resource(self, path):
         key = tuple(seg for seg in path.split("/") if seg)
@@ -388,7 +405,7 @@ class ThingRuntime:
                 hub.routes[(form.get("htv:methodName", "GET"), path)] = h
 
     async def _bind_coap(self, name, url, ops):
-        hub = await CoapHub.get(url.port or 5683)
+        hub = await CoapHub.get(url.port or 5683, url.hostname)
         res = hub.resource(url.path)
         for op in ops:
             if op == "readproperty":
