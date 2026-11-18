@@ -185,13 +185,19 @@ loops → clean shutdown on SIGINT/SIGTERM.
 - Affordances: property `on` (read/write), actions `turnOn`/`turnOff`/`toggle`, event `stateChanged`.
   `turnOn`/`turnOff` are idempotent and only emit an event when the state actually changes.
 - Fail-safe: the relay is switched off when the service stops.
+- Fails loudly: if GPIO cannot be opened the service exits (systemd shows it as failed) instead of silently
+  using a mock that would report "off" while the real relay never changes. `RELAY_MOCK=true` allows the mock
+  for laptop development.
+- `RELAY_DRIVE=open-drain`: ON drives the pin LOW, OFF *releases* it (floating input). This is for 5 V
+  active-low boards that a 3.3 V HIGH cannot switch off; once released, the board pulls IN to 5 V itself
+  (see docs/WIRING.md). `devices/relay_polarity_test.py` checks the setting on the hardware.
 - Protocol = whatever `RELAY_TD` (default `things/fan-relay.td.json`) says.
 
 ### 4.5 Smart plug (`devices/smart_plug.py`), HTTP, simulated
 
 A 1.5 kW heater plug: property `on`, property `power` (≈1500 W ± noise when on, ≈0.5 W standby), the same
-three actions and a `stateChanged` event over HTTP long-poll. It starts ON so that the application has
-something to switch off when it gets hot.
+three actions and a `stateChanged` event over HTTP long-poll. It starts ON. The application switches it OFF
+when the room is too hot and back ON when it has cooled below the hysteresis band.
 
 ### 4.6 Simulated devices (`devices/sim_devices.py`)
 
@@ -315,19 +321,23 @@ notice a protocol swap.
 
 ### 8.1 `src/app/app.js`: the part that must never change
 
-About 30 lines of logic. It declares **what** it needs and **what** to do:
+About 40 lines of logic. It declares **what** it needs and **what** to do (simplified):
 
 ```js
 requires: {
   sensor: { type: "saref:TemperatureSensor", events: ["measurement"] },
   fan:    { type: "bldg:FanController", properties: ["on"], actions: ["turnOn", "turnOff"] },
-  heater: { type: "bldg:SmartPlug",     properties: ["on"], actions: ["turnOff"], optional: true },
+  heater: { type: "bldg:SmartPlug",     properties: ["on"], actions: ["turnOn", "turnOff"], optional: true },
 },
 bind({ sensor, fan, heater }, app) {
   app.subscribe(sensor, "measurement", async (m) => {
-    const fanOn = await (await fan.readProperty("on")).value();
-    if (m.temperature > threshold && !fanOn)                    { fan.invokeAction("turnOn");  heater?.invokeAction("turnOff"); notify(...) }
-    else if (m.temperature < threshold - hysteresis && fanOn)   { fan.invokeAction("turnOff"); notify(...) }
+    const fanOn = await read(fan, "on"), heaterOn = heater && await read(heater, "on");
+    if (m.temperature > threshold)                    want = { fan: true,  heater: false };  // cool
+    else if (m.temperature < threshold - hysteresis)  want = { fan: false, heater: true  };  // heat
+    else return;                                                                             // hysteresis band
+    if (fanOn !== want.fan)               fan.invokeAction(want.fan ? "turnOn" : "turnOff");
+    if (heater && heaterOn !== want.heater) heater.invokeAction(want.heater ? "turnOn" : "turnOff");
+    notify(...)                                                                               // if anything switched
   });
 }
 ```
@@ -335,10 +345,12 @@ bind({ sensor, fan, heater }, app) {
 It contains no protocol, URL, topic, port or IP address. `sensor`, `fan` and `heater` are node-wot
 ConsumedThings.
 
-**Rule:** above the threshold the fan goes ON and the heater plug OFF, with a notification. Below
-`threshold − hysteresis` the fan goes OFF, with a notification. The hysteresis prevents the relay from
-chattering around the threshold. The rule reads the fan's real state each time, so manual changes (from the
-dashboard) are taken into account.
+**Rule (a simple thermostat):** above the threshold the fan goes ON and the heater plug OFF. Below
+`threshold − hysteresis` the fan goes OFF and the heater plug ON. Inside the hysteresis band nothing changes,
+which prevents the relay from chattering around the threshold. Every switch sends a notification. The rule
+reads both devices' real state on every measurement and only switches what differs. So while automatic
+control is enabled, a manual change that contradicts the rule (e.g. heater off while it's cold) is undone at
+the next measurement; switch automatic control off on the dashboard to control devices by hand.
 
 ### 8.2 `src/lib/app-runtime.js`: generic plumbing
 
@@ -382,7 +394,7 @@ It supports light and dark mode.
 | Tool | What it does | Output |
 |---|---|---|
 | `src/tools/validate-tds.js` (`wotctl validate [--live] [--jsonld]`) | runs every TD file, and with `--live` every TD in the directory (including the gateway-generated proxy TDs), through `@thing-description-playground/core`, the library behind the W3C TD Playground. Checks: JSON, TD 1.1 schema, full schema/defaults, extra assertions (security, unique names, enum/const, multi-language, …), JSON-LD expansion with `--jsonld` | `results/td-validation.{md,json}` |
-| `src/tools/swap-test.js` (`wotctl swap-test`) | hashes all 17 source files; for relay protocol CoAP → MQTT → CoAP it replaces only `things/fan-relay.td.json`, restarts the relay, waits for the gateway to re-bind, then for **both** app modes writes a threshold below/above the current temperature and checks the physical relay follows. Re-hashes and counts changed lines (LCS diff) | `results/swap-test-*.{md,json}` |
+| `src/tools/swap-test.js` (`wotctl swap-test`) | hashes every source file (`src/**/*.js`, `devices/**/*.py`; 19 at present); for relay protocol CoAP → MQTT → CoAP it replaces only `things/fan-relay.td.json`, restarts the relay, waits for the gateway to re-bind, then for **both** app modes writes a threshold below/above the current temperature and checks the physical relay follows. Re-hashes and counts changed lines (LCS diff) | `results/swap-test-*.{md,json}` |
 | `src/bench/latency.js` (`wotctl bench-latency`) | starts 3 simulated devices (HTTP, CoAP, MQTT) and, with `--real`, includes the physical ones. For each device and interaction it runs warm-up, then N samples **interleaved** direct/gateway (alternating order cancels drift), using the **same node-wot client** for both paths. Events: subscribes direct, gateway long-poll and gateway WebSocket simultaneously and computes `receive time − device ts` (same clock, same Pi). Also delivery ratio. Pauses the app during the run | `results/latency-*.{csv,json,md}` |
 | `bench/scalability.py` (`wotctl bench-scale`) | grows the simulated fleet 0 → 10 → 25 → 50 → 75 → 100. Per step: proxy-creation time; then 30 s of 1 Hz sampling of the gateway process (psutil CPU %, RSS), JS heap from the gateway Thing, system CPU and memory, while reading every device's `value` through the gateway every 5 s (read latency under load) and counting forwarded events/s | `results/scalability-*.{csv,md}` |
 | `bench/plot.py` (`wotctl plots`) | figures + one combined `results/REPORT.md` | `results/plots/*.png` |

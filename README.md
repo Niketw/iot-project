@@ -148,7 +148,7 @@ Open the **dashboard** from any computer on the same network: `http://wotpi.loca
 1. Show `./wotctl status` and the dashboard: three devices, three protocols, one gateway.
 2. Breathe on / hold the DHT22 (or `./wotctl threshold 22`): temperature crosses the threshold →
    **fan turns on, heater plug turns off**, alert appears on the dashboard.
-3. `./wotctl threshold 35` → fan turns off.
+3. `./wotctl threshold 35` → fan turns off, **heater plug turns back on**.
 4. `./wotctl swap mqtt` → `./wotctl status` shows `native=mqtt`; repeat step 2 — **same app, no code change**.
 5. `./wotctl mode direct` → app now drives the relay over MQTT itself; repeat step 2.
 6. `./wotctl swap coap` to go back.

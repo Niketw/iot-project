@@ -137,6 +137,7 @@ function appCard(td) {
     <div class="row"><span class="k">device access</span><span><select data-set="mode"><option value="gateway">via gateway</option><option value="direct">direct (native)</option></select></span></div>
     <div class="row"><span class="k">temperature</span><span class="v" data-s="temperature">…</span></div>
     <div class="row"><span class="k">fan</span><span class="v" data-s="fanOn">…</span></div>
+    <div class="row"><span class="k">heater plug</span><span class="v" data-s="heaterOn">…</span></div>
     <div class="row"><span class="k">fan reached via</span><span class="v" data-s="fanVia">…</span></div>
     <div class="row"><span class="k">state</span><span class="v" data-s="state">…</span></div>
     <div class="row"><span class="k">last alert</span><span class="v alert" data-s="alert">–</span></div>`;
@@ -156,6 +157,7 @@ async function refreshApp(td, el) {
     const set = (k, v) => ($(`[data-s="${k}"]`, el).innerHTML = v);
     set("temperature", s.temperature != null ? `${s.temperature.toFixed(2)} °C` : "–");
     set("fanOn", fmt(s.fanOn));
+    set("heaterOn", s.heaterOn == null ? "–" : fmt(s.heaterOn));
     set("fanVia", esc((s.bound?.fan?.protocols || []).join("+") || "–"));
     set("state", esc(s.state));
     set("alert", s.lastAlert ? esc(`${new Date(s.lastAlert.ts).toLocaleTimeString()} ${s.lastAlert.message}`) : "–");

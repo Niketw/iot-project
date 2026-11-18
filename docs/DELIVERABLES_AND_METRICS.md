@@ -52,9 +52,9 @@ SAREF. Validation uses the W3C TD Playground's own library (offline-capable), se
 
 ### D3: Protocol-independent application and protocol-swap test
 
-`src/app/app.js` uses only TD vocabulary (`@type`, `measurement`, `on`, `turnOn`, `turnOff`). The swap test:
+`src/app/app.js` uses only TD vocabulary (`@type`, `measurement`, `on`, `turnOn`, `turnOff`). Rule: above the threshold fan ON + heater plug OFF; below threshold − hysteresis fan OFF + heater plug ON. The swap test:
 
-1. hashes all application, gateway and device source files (17 files);
+1. hashes all application, gateway and device source files (19 files);
 2. for relay protocol **CoAP → MQTT → CoAP**, replaces **only** `things/fan-relay.td.json` and restarts the relay;
 3. for **both** application modes (through the gateway, and direct with node-wot speaking the native protocol
    itself), drives the app via its own WoT interface (threshold below/above the current temperature) and
@@ -136,7 +136,7 @@ See metrics M1 and M2. Raw data (CSV/JSON) and figures are generated automatical
 
 | | |
 |---|---|
-| **Definition** | number of added + removed lines (LCS diff) over **all** application, gateway and device source files (`src/**/*.js`, `devices/**/*.py`, 17 files) between before and after moving the relay CoAP → MQTT → CoAP |
+| **Definition** | number of added + removed lines (LCS diff) over **all** application, gateway and device source files (`src/**/*.js`, `devices/**/*.py`, 19 files) between before and after moving the relay CoAP → MQTT → CoAP |
 | **Pass criterion** | 0 lines changed **and** the application still switches the fan correctly in every phase, in both gateway and direct mode (6 checks) |
 | **Also reported** | which non-code file changed (`things/fan-relay.td.json` only), how many TD lines differ between the CoAP and MQTT variants, time-to-actuate per phase, SHA-256 of `src/app/app.js` |
 | **Command** | `./wotctl swap-test` |
@@ -164,7 +164,7 @@ the ones for the report.
 
 | Metric | Development-run result |
 |---|---|
-| M3 swap test | **6/6 PASS**, **0 lines of code changed** in 17 files; only `things/fan-relay.td.json` changed (19 TD lines differ CoAP vs MQTT); gateway re-bound to the new protocol ≈ 2.4 s after the relay re-registered |
+| M3 swap test | **6/6 PASS**, **0 lines of code changed** in 19 files (re-run after the heater-rule change); only `things/fan-relay.td.json` changed (19 TD lines differ CoAP vs MQTT); gateway re-bound to the new protocol ≈ 2.4 s after the relay re-registered |
 | M4 validation | **19/19 TDs pass** (10 files + 9 live TDs incl. gateway proxies, directory and app); JSON-LD check also passes (10/10) when online |
 | M1 added latency (p50) | read +1.3–1.8 ms, action +1.1–1.5 ms, event +1.2–2.0 ms (long-poll); WebSocket events +0.2–0.9 ms over direct; direct paths 0.3–1.7 ms |
 | M1 event delivery | 97.5–100 % on all paths |

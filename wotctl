@@ -78,7 +78,8 @@ import json
 s = json.load(open("/tmp/wot-app.json"))
 fan = s.get("bound", {}).get("fan", {})
 print(f"\n  app    state={s.get('state')}  mode={s['settings']['mode']}  temp={s.get('temperature')} °C  "
-      f"threshold={s['settings']['threshold']}  fan={'ON' if s.get('fanOn') else 'off'}  fan-via={'+'.join(fan.get('protocols', []))}")
+      f"threshold={s['settings']['threshold']}  fan={'ON' if s.get('fanOn') else 'off'}  "
+      f"heater={'-' if s.get('heaterOn') is None else ('ON' if s['heaterOn'] else 'off')}  fan-via={'+'.join(fan.get('protocols', []))}")
 if s.get("lastAlert"): print(f"         last alert: {s['lastAlert']['message']}")
 EOF
     fi
