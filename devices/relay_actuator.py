@@ -95,6 +95,9 @@ async def main():
     try:
         relay = GpioRelay(cfg.int("RELAY_GPIO", 17), cfg.bool("RELAY_ACTIVE_HIGH", False),
                           cfg.get("RELAY_DRIVE", "push-pull").strip().lower())
+    except ValueError as exc:  # invalid combination in config/wot.env - not a GPIO problem
+        logging.getLogger("fan-relay").error("Config error in config/wot.env: %s", exc)
+        raise SystemExit(1)
     except Exception as exc:
         if not cfg.bool("RELAY_MOCK", False):
             logging.getLogger("fan-relay").error("GPIO unavailable (%s). Fix GPIO access or set RELAY_MOCK=true for development.", exc)

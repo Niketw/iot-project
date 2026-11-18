@@ -125,14 +125,26 @@ async function runApplication(spec) {
         for await (const td of proc) tds.push(td);
         const wantProxy = settings.mode === "gateway";
         const pool = tds.filter((td) => (wantProxy ? td.id?.startsWith("urn:wot:gateway:urn:wot:device:") : td.id?.startsWith("urn:wot:device:")));
+        const natives = tds.filter((td) => td.id?.startsWith("urn:wot:device:"));
         const chosen = {};
         const missing = [];
         for (const [role, req] of Object.entries(spec.requires)) {
             const td = pool.find((t) => matches(t, req));
             if (td) chosen[role] = td;
-            else if (!req.optional) missing.push(role);
+            else if (!req.optional) missing.push(`${role} (${whyMissing(req, pool, natives, wantProxy)})`);
         }
         return { chosen, missing };
+    }
+
+    /** Explain a missing device so the status tells you where to look. */
+    function whyMissing(req, pool, natives, wantProxy) {
+        const ofType = (list) => list.filter((t) => [].concat(t["@type"] || []).includes(req.type));
+        const candidate = ofType(pool)[0];
+        if (candidate) return `${candidate.id} lacks required affordances - check its TD`;
+        const native = ofType(natives)[0];
+        if (!native) return "device not registered in the directory - is its service running? see ./wotctl status";
+        if (!matches(native, req)) return `${native.id} lacks required affordances - check its TD`;
+        return wantProxy ? "device registered but the gateway has not proxied it - check ./wotctl logs gateway" : "unknown";
     }
 
     async function teardown() {
