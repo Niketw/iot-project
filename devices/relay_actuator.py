@@ -15,24 +15,61 @@ log = setup_logging("fan-relay")
 
 
 class GpioRelay:
-    """Drives a real GPIO pin. RELAY_ACTIVE_HIGH decides which pin level energises the relay:
-    active-low boards (most blue modules) energise when the pin is LOW, so 'on' = LOW pin."""
+    """Drives a real GPIO pin.
 
-    def __init__(self, pin, active_high):
+    RELAY_ACTIVE_HIGH decides which pin level energises the relay: active-low boards (most blue
+    modules) energise when the pin is LOW.
+
+    RELAY_DRIVE:
+      push-pull  (default) ON and OFF are both driven levels (LOW / HIGH).
+      open-drain ON = drive LOW, OFF = release the pin (floating input). For 5 V active-low boards
+                 that a 3.3 V HIGH cannot switch off: once released, the board pulls IN up to its own
+                 5 V and the relay turns off. The only current that can flow into the released pin is
+                 the board's input-LED current, which is tiny when the relay is off.
+    """
+
+    def __init__(self, pin, active_high, drive="push-pull"):
         from gpiozero import OutputDevice
         self.pin = pin
         self.active_high = active_high
+        self.open_drain = drive == "open-drain"
+        if self.open_drain and active_high:
+            raise ValueError("RELAY_DRIVE=open-drain only works with RELAY_ACTIVE_HIGH=false (active-low board)")
         self.dev = OutputDevice(pin, active_high=active_high, initial_value=False)
-        self.name = f"GPIO{pin} ({'active-high' if active_high else 'active-low'})"
+        self._on = False
+        if self.open_drain:
+            self._release()
+        mode = "open-drain" if self.open_drain else ("active-high" if active_high else "active-low")
+        self.name = f"GPIO{pin} ({mode})"
+
+    def _release(self):
+        p = self.dev.pin
+        p.function = "input"
+        try:
+            p.pull = "floating"
+        except Exception as exc:  # some pin drivers cannot change pulls; input mode alone still releases IN
+            log.warning("could not disable the pull resistor on GPIO%d: %s", self.pin, exc)
 
     def set(self, on):
-        self.dev.on() if on else self.dev.off()
-        # active-high: relay energised when the pin is HIGH; active-low: when LOW
-        level = "HIGH" if on == self.active_high else "LOW"
-        log.info("GPIO%d driven %s -> fan %s", self.pin, level, "ON" if on else "OFF")
+        on = bool(on)
+        if self.open_drain:
+            p = self.dev.pin
+            if on:
+                p.function = "output"
+                p.state = False  # sink current through the board's input -> relay ON
+                level = "driven LOW"
+            else:
+                self._release()
+                level = "released (board pulls IN to 5 V)"
+        else:
+            self.dev.on() if on else self.dev.off()
+            # active-high: relay energised when the pin is HIGH; active-low: when LOW
+            level = "driven " + ("HIGH" if on == self.active_high else "LOW")
+        self._on = on
+        log.info("GPIO%d %s -> fan %s", self.pin, level, "ON" if on else "OFF")
 
     def get(self):
-        return bool(self.dev.value)
+        return self._on
 
 
 class MockRelay:
@@ -56,7 +93,8 @@ async def main():
     # So on a Pi a GPIO failure stops the service (systemd shows it as failed).
     # Only RELAY_MOCK=true (laptop development) allows the mock.
     try:
-        relay = GpioRelay(cfg.int("RELAY_GPIO", 17), cfg.bool("RELAY_ACTIVE_HIGH", False))
+        relay = GpioRelay(cfg.int("RELAY_GPIO", 17), cfg.bool("RELAY_ACTIVE_HIGH", False),
+                          cfg.get("RELAY_DRIVE", "push-pull").strip().lower())
     except Exception as exc:
         if not cfg.bool("RELAY_MOCK", False):
             logging.getLogger("fan-relay").error("GPIO unavailable (%s). Fix GPIO access or set RELAY_MOCK=true for development.", exc)

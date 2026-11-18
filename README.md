@@ -48,16 +48,20 @@ No second Pi or ESP32 is needed — everything runs on one Pi. The HTTP smart pl
 | DHT22 **VCC** (+) | pin 1 (3.3 V) | |
 | DHT22 **DATA** (out) | pin 7 | **GPIO 4** |
 | DHT22 **GND** (−) | pin 9 (GND) | |
-| Relay **VCC** | **pin 17 (3.3 V)** — not 5 V, see note below | |
+| Relay **VCC** | pin 2 (5 V) — the relay coil needs 5 V | |
 | Relay **GND** | pin 6 (GND) | |
-| Relay **IN** | pin 11 | **GPIO 17** |
+| Relay **IN** | via an NPN transistor from pin 11, see note below | **GPIO 17** |
 | Fan **red** ← Relay **NO**, Relay **COM** ← | pin 4 (5 V) | |
 | Fan **black** | pin 14 (GND) | |
 
-*Why relay VCC goes to 3.3 V:* most relay boards switch off only when IN reaches their own supply voltage,
-and the Pi's signal tops out at 3.3 V. On 5 V the relay stays on whatever the software does. Physical
-**pin 17** (3.3 V power) is not **GPIO 17** (the signal on pin 11). If the relay won't click at 3.3 V, see
-[docs/WIRING.md](docs/WIRING.md#5-v-relay-boards-and-the-pis-33-v-signal) (transistor fix).
+*Why a transistor:* most 5 V relay boards switch off only when IN reaches 5 V, but the Pi's signal tops
+out at 3.3 V, so wired straight to the Pi the relay never turns off. Powering the board from 3.3 V
+instead doesn't work either: the input LED lights, but the coil is too weak to click. An NPN
+transistor (2N2222 / 2N3904 / BC547 + 1 kΩ) between GPIO 17 and IN fixes both problems. Set
+`RELAY_ACTIVE_HIGH=true`. Wiring: [docs/WIRING.md](docs/WIRING.md#5-v-relay-boards-and-the-pis-33-v-signal) (Fix C).
+Some boards accept 3.3 V directly; if yours turns fully on and off when IN goes straight to pin 11, you can skip the transistor.
+**No transistor?** Wire IN straight to pin 11 and set `RELAY_DRIVE=open-drain` (with `RELAY_ACTIVE_HIGH=false`) in
+`config/wot.env`: OFF then releases the pin and the board switches itself off. See WIRING.md, Fix E.
 
 *LED instead of relay:* GPIO 17 (pin 11) → 330 Ω → LED long leg; LED short leg → GND (pin 14).
 Then set `RELAY_ACTIVE_HIGH=true` in `config/wot.env`.

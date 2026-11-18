@@ -13,11 +13,10 @@ brackets. The software uses BCM numbers (`DHT_GPIO=4`, `RELAY_GPIO=17` in `confi
                        GPIO3  (5) (6)  GND  ──── relay GND
      DHT22 DATA ──── GPIO4  (7) (8)  GPIO14
      DHT22 GND ───────  GND  (9) (10) GPIO15
-     Relay IN ────── GPIO17 (11) (12) GPIO18
+     Relay IN* ───── GPIO17 (11) (12) GPIO18
                       GPIO27 (13) (14) GND  ──── fan black (−)
-                      GPIO22 (15) (16) GPIO23
-     Relay VCC ───────  3V3 (17) (18) GPIO24
                          ...
+     Relay VCC → pin 2 (5V).   * on most boards via an NPN transistor (Fix C)
 ```
 
 **Always wire with the Pi powered off.**
@@ -56,14 +55,14 @@ cat /sys/bus/iio/devices/iio:device0/in_temp_input        # e.g. 23400 = 23.4 °
 
 | Relay module | Pi |
 |---|---|
-| VCC | **pin 17 (3.3 V)** |
+| VCC | pin 2 (5 V) |
 | GND | pin 6 (GND) |
-| IN (IN1) | pin 11 (GPIO 17) |
+| IN (IN1) | pin 11 (GPIO 17), **through an NPN transistor on most boards** (Fix C below) |
 
-Why 3.3 V and not 5 V: these boards switch off when IN is at the same voltage as their VCC. The Pi's signal
-only reaches 3.3 V, so a board powered from 5 V never fully switches off (see the next section). Pin 1 also
-carries 3.3 V but is used by the DHT22. If your relay doesn't click at 3.3 V, power VCC from pin 2 (5 V) and
-add the transistor (Fix C below).
+Most 5 V boards need IN at 5 V to switch off, and the Pi only reaches 3.3 V (see the next section). Test
+yours: if wiring IN straight to pin 11 gives clean click-on / click-off, no transistor is needed. If the
+relay stays on, use Fix C. Powering the board from 3.3 V (pin 17) usually fails: the LED switches but the
+coil doesn't click.
 
 Fan circuit through the relay's switch contacts (screw terminals):
 
@@ -108,9 +107,10 @@ on 5 V, and set `RELAY_ACTIVE_HIGH=true`.
 
 **No jumper, no parts: try powering the board from 3.3 V.** Move the relay's VCC wire from pin 2 (5 V) to
 the Pi's second 3.3 V pin, **pin 17** (pin 1 is taken by the DHT22); GND and IN stay as they are. Now the Pi's 3.3 V HIGH equals the board's supply, so the input
-LED switches fully off. Keep `RELAY_ACTIVE_HIGH=false`. Catch: the 5 V relay coil now gets only 3.3 V. Many
-boards still click reliably; some don't pull in, or chatter. If the polarity test clicks cleanly ON/OFF four
-times, you're done. If it doesn't, use Fix C.
+LED switches fully off. Catch: the 5 V relay coil now gets only 3.3 V and often can't pull in. A common
+symptom is that **the board's LED turns on and off but there is no click**, so the fan never runs. If you
+see that, put VCC back on pin 2 and use Fix C. Only if you hear four clean clicks in the polarity test is
+this option enough.
 
 **Fix C: no jumper. Add an NPN transistor** (2N2222, BC547 or 2N3904 plus a 1 kΩ resistor; 330 Ω–2.2 kΩ also works):
 
@@ -124,6 +124,23 @@ times, you're done. If it doesn't, use Fix C.
 GPIO HIGH turns the transistor on, which pulls IN to GND and energises the relay. GPIO LOW turns it off, and
 the board pulls IN up to 5 V. The Pi never sees 5 V. Set `RELAY_ACTIVE_HIGH=true`. 2N2222 and 2N3904 in
 the TO-92 package, flat face towards you and legs down, are **E B C** from left to right; BC547 is **C B E**.
+
+**Fix E: no transistor, no jumper. Use open-drain mode (software only).** Keep VCC on pin 2 (5 V) and IN
+straight on pin 11. In `config/wot.env` set:
+
+```
+RELAY_ACTIVE_HIGH=false
+RELAY_DRIVE=open-drain
+```
+
+Then `./wotctl restart relay`. Now ON drives GPIO 17 LOW and OFF *releases* the pin (floating input), so the
+board pulls IN up to its own 5 V and the relay switches off. Clue that your board needs this: the relay clicks
+off when the relay service *stops* (pin released) but never when the software says off. Check with
+`.venv/bin/python devices/relay_polarity_test.py open-drain`.
+
+*Caveat:* a released pin can float a little above 3.3 V, outside the Pi's specification. The only current
+that can flow into it is the board's input-LED current, which is tiny once the relay is off. This trick is
+widely used with these boards. Fix C is the by-the-book solution.
 
 **Fix D: LED instead of relay** (for the demo). See the LED section below; set `RELAY_ACTIVE_HIGH=true`.
 
