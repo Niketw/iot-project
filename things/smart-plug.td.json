@@ -1,0 +1,142 @@
+{
+  "@context": [
+    "https://www.w3.org/2022/wot/td/v1.1",
+    {
+      "saref": "https://w3id.org/saref#",
+      "bldg": "https://example.org/smart-building#",
+      "cov": "http://www.example.org/coap-binding#",
+      "mqv": "http://www.example.org/mqtt-binding#"
+    }
+  ],
+  "@type": [
+    "saref:Switch",
+    "bldg:SmartPlug"
+  ],
+  "id": "urn:wot:device:smart-plug-1",
+  "title": "Heater Smart Plug",
+  "description": "Software-simulated smart plug powering a 1.5 kW space heater. Native protocol: HTTP (REST + long-polling events).",
+  "securityDefinitions": {
+    "nosec_sc": {
+      "scheme": "nosec"
+    }
+  },
+  "security": "nosec_sc",
+  "properties": {
+    "on": {
+      "title": "Plug is on",
+      "type": "boolean",
+      "observable": false,
+      "forms": [
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/properties/on",
+          "op": [
+            "readproperty"
+          ],
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        },
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/properties/on",
+          "op": [
+            "writeproperty"
+          ],
+          "htv:methodName": "PUT",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "power": {
+      "title": "Active power draw",
+      "type": "number",
+      "unit": "watt",
+      "readOnly": true,
+      "observable": false,
+      "forms": [
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/properties/power",
+          "op": [
+            "readproperty"
+          ],
+          "htv:methodName": "GET",
+          "contentType": "application/json"
+        }
+      ]
+    }
+  },
+  "actions": {
+    "turnOn": {
+      "title": "Switch the plug on",
+      "idempotent": true,
+      "forms": [
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/actions/turnOn",
+          "op": [
+            "invokeaction"
+          ],
+          "htv:methodName": "POST",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "turnOff": {
+      "title": "Switch the plug off",
+      "idempotent": true,
+      "forms": [
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/actions/turnOff",
+          "op": [
+            "invokeaction"
+          ],
+          "htv:methodName": "POST",
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "toggle": {
+      "title": "Toggle the plug",
+      "forms": [
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/actions/toggle",
+          "op": [
+            "invokeaction"
+          ],
+          "htv:methodName": "POST",
+          "contentType": "application/json"
+        }
+      ]
+    }
+  },
+  "events": {
+    "stateChanged": {
+      "title": "Plug state changed",
+      "data": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean"
+          },
+          "ts": {
+            "type": "number"
+          },
+          "seq": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on",
+          "ts"
+        ]
+      },
+      "forms": [
+        {
+          "href": "http://{{WOT_HOST}}:{{PLUG_HTTP_PORT}}/plug/events/stateChanged",
+          "op": [
+            "subscribeevent"
+          ],
+          "subprotocol": "longpoll",
+          "contentType": "application/json"
+        }
+      ]
+    }
+  }
+}

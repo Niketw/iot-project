@@ -1,0 +1,88 @@
+{
+  "@context": [
+    "https://www.w3.org/2022/wot/td/v1.1",
+    {
+      "saref": "https://w3id.org/saref#",
+      "bldg": "https://example.org/smart-building#",
+      "cov": "http://www.example.org/coap-binding#",
+      "mqv": "http://www.example.org/mqtt-binding#"
+    }
+  ],
+  "@type": [
+    "saref:Sensor",
+    "bldg:SimulatedDevice"
+  ],
+  "id": "urn:wot:sim:{{SIM_ID}}",
+  "title": "Sim Device {{SIM_ID}}",
+  "description": "Software-simulated device used for latency and scalability tests. Native protocol: MQTT.",
+  "securityDefinitions": {
+    "nosec_sc": {
+      "scheme": "nosec"
+    }
+  },
+  "security": "nosec_sc",
+  "properties": {
+    "value": {
+      "title": "Simulated reading",
+      "type": "number",
+      "readOnly": true,
+      "observable": false,
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/sim/{{SIM_ID}}/properties/value",
+          "op": [
+            "readproperty"
+          ],
+          "contentType": "application/json",
+          "mqv:retain": true
+        }
+      ]
+    }
+  },
+  "actions": {
+    "ping": {
+      "title": "No-op action used to measure invocation latency",
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/sim/{{SIM_ID}}/actions/ping",
+          "op": [
+            "invokeaction"
+          ],
+          "contentType": "application/json",
+          "mqv:qos": "1"
+        }
+      ]
+    }
+  },
+  "events": {
+    "tick": {
+      "title": "Periodic event; ts = Unix time in ms at the device",
+      "data": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "number"
+          },
+          "ts": {
+            "type": "number"
+          },
+          "seq": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ts"
+        ]
+      },
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/sim/{{SIM_ID}}/events/tick",
+          "op": [
+            "subscribeevent"
+          ],
+          "contentType": "application/json"
+        }
+      ]
+    }
+  }
+}

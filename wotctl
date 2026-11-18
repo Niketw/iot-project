@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# wotctl - control the WoT Smart-Building Gateway on the Raspberry Pi.
+set -uo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+cd "$DIR"
+SERVICES=(directory sensor relay plug gateway app)
+PY="$DIR/.venv/bin/python"
+export WOT_PYTHON="$PY"
+SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
+cfg() {  # cfg KEY default  (config/wot.env, then the example file)
+  local v=""
+  for f in config/wot.env config/wot.env.example; do
+    [ -f "$f" ] || continue
+    v=$(grep -E "^$1=" "$f" | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | xargs)
+    [ -n "$v" ] && break
+  done
+  echo "${v:-$2}"
+}
+HOST=$(cfg WOT_HOST auto); [ "$HOST" = auto ] && HOST=$(hostname -I 2>/dev/null | awk '{print $1}'); HOST=${HOST:-127.0.0.1}
+APP="http://127.0.0.1:$(cfg APP_PORT 8082)/climate-controller/properties"
+GW="http://127.0.0.1:$(cfg GATEWAY_HTTP_PORT 8080)"
+
+svc() { local s="$1"; [[ "$s" == wot-* ]] || s="wot-$s"; echo "$s"; }
+put() { curl -sf -X PUT -H 'Content-Type: application/json' -d "$2" "$APP/$1" && echo "app $1 = $2" || echo "could not reach the app (is wot-app running?)"; }
+
+usage() {
+cat <<EOF
+Usage: ./wotctl <command> [args]
+
+ Services
+   status                     state of all services + what the gateway proxies
+   start | stop | restart [service]   (default: all)  services: ${SERVICES[*]}
+   logs [service]             follow logs (default: all WoT services)
+   urls                       print dashboard / API URLs
+
+ Demo
+   threshold <°C>             set the application's temperature threshold
+   mode gateway|direct        application uses gateway proxies or the devices' own TDs
+   enable | disable           turn automatic fan control on/off
+   fan on|off                 switch the fan through the gateway
+   swap coap|mqtt             move the fan relay to another protocol (edits ONLY its TD)
+   sim <N> [tick_s]           run N simulated devices in the foreground (Ctrl+C stops)
+
+ Evaluation (results go to results/)
+   validate [--live] [--jsonld]   validate all Thing Descriptions (W3C TD playground)
+   swap-test                  automated protocol-swap test (lines of code changed)
+   bench-latency [args]       direct vs gateway latency      (src/bench/latency.js)
+   bench-scale [args]         CPU/RAM vs 10..100 devices     (bench/scalability.py)
+   plots                      figures + results/REPORT.md
+   evaluate                   ALL of the above in sequence (~15 min)
+
+ Maintenance
+   uninstall                  remove the systemd services (keeps files)
+EOF
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  status)
+    for s in mosquitto "${SERVICES[@]}"; do
+      unit=$s; [ "$s" != mosquitto ] && unit="wot-$s"
+      st=$(systemctl is-active "$unit" 2>/dev/null)
+      printf '  %-14s %s\n' "$s" "$( [ "$st" = active ] && printf '\033[32m%s\033[0m' "$st" || printf '\033[31m%s\033[0m' "$st")"
+    done
+    echo
+    if curl -sf "$GW/wot-gateway/properties/proxies" -o /tmp/wot-proxies.json 2>/dev/null; then
+      python3 - <<'EOF'
+import json
+for p in json.load(open("/tmp/wot-proxies.json")):
+    s = p["stats"]
+    print(f"  proxy  {p['title'][:28]:<28} native={'+'.join(p['nativeProtocols']):<6} reads={s['reads']} actions={s['actions']} events={s['events']} errors={s['errors']}")
+EOF
+    else echo "  gateway not reachable yet"; fi
+    if curl -sf "$APP/status" -o /tmp/wot-app.json 2>/dev/null; then
+      python3 - <<'EOF'
+import json
+s = json.load(open("/tmp/wot-app.json"))
+fan = s.get("bound", {}).get("fan", {})
+print(f"\n  app    state={s.get('state')}  mode={s['settings']['mode']}  temp={s.get('temperature')} °C  "
+      f"threshold={s['settings']['threshold']}  fan={'ON' if s.get('fanOn') else 'off'}  fan-via={'+'.join(fan.get('protocols', []))}")
+if s.get("lastAlert"): print(f"         last alert: {s['lastAlert']['message']}")
+EOF
+    fi
+    relay_proto=$(grep -o '"href": "[a-z]*' "$(cfg RELAY_TD things/fan-relay.td.json)" | head -1 | cut -d'"' -f4)
+    sensor_backend=$(journalctl -u wot-sensor -n 200 --no-pager 2>/dev/null | grep -o 'sensor backend: [a-z0-9-]*' | tail -1)
+    echo "  relay TD protocol: ${relay_proto:-?}    ${sensor_backend:-}"
+    ;;
+  start|stop|restart)
+    if [ $# -eq 0 ]; then
+      if [ "$cmd" = stop ]; then $SUDO systemctl stop wot.target "${SERVICES[@]/#/wot-}"; else $SUDO systemctl "$cmd" wot.target "${SERVICES[@]/#/wot-}"; fi
+    else
+      for s in "$@"; do $SUDO systemctl "$cmd" "$(svc "$s")"; done
+    fi
+    echo "$cmd: done" ;;
+  logs)
+    if [ $# -eq 0 ]; then journalctl -f -n 50 -u 'wot-*'; else journalctl -f -n 100 -u "$(svc "$1")"; fi ;;
+  urls)
+    echo "  Dashboard        http://$HOST:$(cfg DIRECTORY_PORT 8090)/"
+    echo "  Thing Directory  http://$HOST:$(cfg DIRECTORY_PORT 8090)/things"
+    echo "  Directory TD     http://$HOST:$(cfg DIRECTORY_PORT 8090)/.well-known/wot"
+    echo "  Gateway HTTP     http://$HOST:$(cfg GATEWAY_HTTP_PORT 8080)/   (e.g. /fan-relay/properties/on)"
+    echo "  Gateway WS       ws://$HOST:$(cfg GATEWAY_WS_PORT 8081)/<thing>/events/<event>"
+    echo "  Application      http://$HOST:$(cfg APP_PORT 8082)/climate-controller" ;;
+  threshold) [ $# -eq 1 ] || { echo "usage: wotctl threshold <°C>"; exit 1; }; put threshold "$1" ;;
+  mode) [[ "${1:-}" =~ ^(gateway|direct)$ ]] || { echo "usage: wotctl mode gateway|direct"; exit 1; }; put mode "\"$1\"" ;;
+  enable) put enabled true ;;
+  disable) put enabled false ;;
+  fan)
+    case "${1:-}" in
+      on)  curl -sf -X POST "$GW/fan-relay/actions/turnOn" && echo "fan ON" ;;
+      off) curl -sf -X POST "$GW/fan-relay/actions/turnOff" && echo "fan OFF" ;;
+      *) echo "usage: wotctl fan on|off"; exit 1 ;;
+    esac ;;
+  swap)
+    p="${1:-}"; [[ "$p" =~ ^(coap|mqtt)$ ]] || { echo "usage: wotctl swap coap|mqtt"; exit 1; }
+    td=$(cfg RELAY_TD things/fan-relay.td.json)
+    cp "things/templates/fan-relay.$p.td.json" "$td"
+    echo "copied things/templates/fan-relay.$p.td.json -> $td   (no code changed)"
+    $SUDO systemctl restart wot-relay
+    echo "relay restarted; the gateway re-binds within ~$(cfg GATEWAY_SYNC_INTERVAL_S 3) s. Check: ./wotctl status" ;;
+  sim)
+    n="${1:-10}"; tick="${2:-5}"
+    exec "$PY" devices/sim_devices.py --count "$n" --tick "$tick" --prefix demo --port-offset 20 ;;
+  validate) node src/tools/validate-tds.js "$@" ;;
+  swap-test) node src/tools/swap-test.js "$@" ;;
+  bench-latency) node src/bench/latency.js --real "$@" ;;
+  bench-scale) "$PY" bench/scalability.py "$@" ;;
+  plots|report) "$PY" bench/plot.py ;;
+  evaluate)
+    set -e
+    echo "### 1/5 Thing Description validation"; node src/tools/validate-tds.js --live || true
+    echo "### 2/5 Protocol-swap test";           node src/tools/swap-test.js || true
+    echo "### 3/5 Latency benchmark";            node src/bench/latency.js --real
+    echo "### 4/5 Scalability benchmark";        "$PY" bench/scalability.py
+    echo "### 5/5 Plots + report";               "$PY" bench/plot.py
+    echo; echo "Done. Open results/REPORT.md (figures in results/plots/)." ;;
+  uninstall)
+    $SUDO systemctl disable --now wot.target "${SERVICES[@]/#/wot-}" 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/wot.target /etc/systemd/system/wot-*.service /etc/mosquitto/conf.d/wot-gateway.conf
+    $SUDO systemctl daemon-reload
+    echo "services removed. (The dtoverlay=dht11 line in /boot/firmware/config.txt was left in place.)" ;;
+  help|-h|--help) usage ;;
+  *) echo "unknown command: $cmd"; usage; exit 1 ;;
+esac

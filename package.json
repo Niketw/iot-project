@@ -1,0 +1,29 @@
+{
+  "name": "wot-smart-building-gateway",
+  "version": "1.0.0",
+  "description": "Protocol-independent smart-building gateway using W3C Web of Things (node-wot) on a Raspberry Pi",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "directory": "node src/directory/server.js",
+    "gateway": "node src/gateway/gateway.js",
+    "app": "node src/app/app.js",
+    "validate": "node src/tools/validate-tds.js",
+    "swap-test": "node src/tools/swap-test.js",
+    "bench:latency": "node src/bench/latency.js"
+  },
+  "dependencies": {
+    "@node-wot/binding-coap": "0.9.2",
+    "@node-wot/binding-http": "0.9.2",
+    "@node-wot/binding-mqtt": "0.9.2",
+    "@node-wot/binding-websockets": "0.9.2",
+    "@node-wot/core": "0.9.2",
+    "@thing-description-playground/core": "1.4.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "ws": "^8.18.0"
+  }
+}

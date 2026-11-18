@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WoT Building Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --ink: #0b0b0b; --ink2: #52514e; --line: #e4e3df;
+    --accent: #2a78d6; --on: #1baf7a; --off: #9b9a95; --warn: #eb6834;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #121211; --card: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --line: #2e2e2c; --accent: #3987e5; --on: #199e70; --off: #77766f; --warn: #d95926; }
+  }
+  :root[data-theme="dark"] { --bg: #121211; --card: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --line: #2e2e2c; --accent: #3987e5; --on: #199e70; --off: #77766f; --warn: #d95926; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { padding: 16px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--ink2); font-size: 13px; }
+  main { padding: 16px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); max-width: 1400px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .card h2 { font-size: 15px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .meta { color: var(--ink2); font-size: 12px; margin-bottom: 10px; word-break: break-all; }
+  .badge { font: 600 11px var(--mono); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--ink2); text-transform: uppercase; }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); align-items: center; }
+  .row .k { color: var(--ink2); }
+  .row .v { font-family: var(--mono); text-align: right; word-break: break-all; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  button, select, input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  input[type=number] { width: 80px; }
+  .log { margin-top: 10px; font: 12px var(--mono); color: var(--ink2); max-height: 110px; overflow: auto; border-top: 1px solid var(--line); padding-top: 6px; }
+  .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wide { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 6px; border-top: 1px solid var(--line); word-break: break-all; }
+  th { color: var(--ink2); font-weight: 600; }
+  .alert { color: var(--warn); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>WoT Smart-Building Gateway</h1>
+  <span class="sub" id="summary">loading…</span>
+</header>
+<main id="cards"></main>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const state = { tds: [], sockets: {}, built: "" };
+
+function form(aff, op, scheme = "http") {
+  return (aff.forms || []).find((f) => [].concat(f.op || []).includes(op) && String(f.href).startsWith(scheme));
+}
+function protocols(td) {
+  const s = new Set();
+  for (const g of ["properties", "actions", "events"]) for (const a of Object.values(td[g] || {})) for (const f of a.forms || []) s.add(String(f.href).split(":")[0]);
+  return [...s];
+}
+function fmt(v) {
+  if (typeof v === "boolean") return `<span class="dot" style="background:var(${v ? "--on" : "--off"})"></span>${v ? "on" : "off"}`;
+  if (typeof v === "number") return Number.isInteger(v) ? v : v.toFixed(2);
+  if (v && typeof v === "object") return esc(JSON.stringify(v));
+  return esc(v ?? "–");
+}
+
+async function readProp(td, name) {
+  const f = form(td.properties[name], "readproperty");
+  const r = await fetch(f.href);
+  return r.json();
+}
+async function writeProp(td, name, value) {
+  const f = form(td.properties[name], "writeproperty");
+  await fetch(f.href, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
+}
+async function invoke(td, name) {
+  const f = form(td.actions[name], "invokeaction");
+  await fetch(f.href, { method: "POST", headers: { "Content-Type": "application/json" } });
+}
+
+function deviceCard(td, nativeTd) {
+  const id = td.id;
+  const el = document.createElement("section");
+  el.className = "card";
+  el.dataset.id = id;
+  const native = nativeTd ? protocols(nativeTd) : [];
+  el.innerHTML = `
+    <h2>${esc(td.title)} ${native.map((p) => `<span class="badge" title="native protocol">${p}</span>`).join("")}<span class="badge" title="exposed by gateway">→ http/ws</span></h2>
+    <div class="meta">${esc([].concat(td["@type"] || []).join(", "))}</div>
+    ${Object.keys(td.properties || {}).map((p) => `<div class="row"><span class="k">${esc(p)}</span><span class="v" data-prop="${esc(p)}">…</span></div>`).join("")}
+    <div class="actions">
+      ${Object.keys(td.actions || {}).map((a) => `<button data-action="${esc(a)}">${esc(a)}</button>`).join("")}
+    </div>
+    ${Object.keys(td.events || {}).length ? `<div class="log" data-log></div>` : ""}`;
+  el.querySelectorAll("[data-action]").forEach((b) => b.addEventListener("click", () => invoke(td, b.dataset.action).then(() => refreshCard(td, el))));
+  // events over the gateway's WebSocket interface
+  for (const [name, ev] of Object.entries(td.events || {})) {
+    const wsf = form(ev, "subscribeevent", "ws");
+    if (!wsf) continue;
+    const key = id + "|" + name;
+    if (state.sockets[key]) state.sockets[key].close();
+    const ws = new WebSocket(wsf.href);
+    state.sockets[key] = ws;
+    ws.onmessage = (m) => {
+      const log = $("[data-log]", el);
+      if (!log) return;
+      const line = document.createElement("div");
+      line.textContent = `${new Date().toLocaleTimeString()} ${name} ${m.data}`;
+      log.prepend(line);
+      while (log.children.length > 30) log.lastChild.remove();
+    };
+  }
+  return el;
+}
+
+async function refreshCard(td, el) {
+  for (const p of Object.keys(td.properties || {})) {
+    const cell = $(`[data-prop="${CSS.escape(p)}"]`, el);
+    try { cell.innerHTML = fmt(await readProp(td, p)); } catch (e) { cell.textContent = "unreachable"; }
+  }
+}
+
+function appCard(td) {
+  const el = document.createElement("section");
+  el.className = "card";
+  el.dataset.id = td.id;
+  el.innerHTML = `
+    <h2>${esc(td.title)} <span class="badge">application</span></h2>
+    <div class="meta">Written only against Thing Descriptions — no protocol code.</div>
+    <div class="row"><span class="k">threshold °C</span><span><input type="number" step="0.5" data-set="threshold"></span></div>
+    <div class="row"><span class="k">automatic control</span><span><select data-set="enabled"><option value="true">enabled</option><option value="false">disabled</option></select></span></div>
+    <div class="row"><span class="k">device access</span><span><select data-set="mode"><option value="gateway">via gateway</option><option value="direct">direct (native)</option></select></span></div>
+    <div class="row"><span class="k">temperature</span><span class="v" data-s="temperature">…</span></div>
+    <div class="row"><span class="k">fan</span><span class="v" data-s="fanOn">…</span></div>
+    <div class="row"><span class="k">fan reached via</span><span class="v" data-s="fanVia">…</span></div>
+    <div class="row"><span class="k">state</span><span class="v" data-s="state">…</span></div>
+    <div class="row"><span class="k">last alert</span><span class="v alert" data-s="alert">–</span></div>`;
+  el.querySelectorAll("[data-set]").forEach((inp) =>
+    inp.addEventListener("change", () => {
+      const k = inp.dataset.set;
+      const v = k === "threshold" ? Number(inp.value) : k === "enabled" ? inp.value === "true" : inp.value;
+      writeProp(td, k, v);
+    })
+  );
+  return el;
+}
+
+async function refreshApp(td, el) {
+  try {
+    const s = await readProp(td, "status");
+    const set = (k, v) => ($(`[data-s="${k}"]`, el).innerHTML = v);
+    set("temperature", s.temperature != null ? `${s.temperature.toFixed(2)} °C` : "–");
+    set("fanOn", fmt(s.fanOn));
+    set("fanVia", esc((s.bound?.fan?.protocols || []).join("+") || "–"));
+    set("state", esc(s.state));
+    set("alert", s.lastAlert ? esc(`${new Date(s.lastAlert.ts).toLocaleTimeString()} ${s.lastAlert.message}`) : "–");
+    for (const k of ["threshold", "enabled", "mode"]) {
+      const inp = $(`[data-set="${k}"]`, el);
+      if (document.activeElement !== inp) inp.value = String(s.settings[k]);
+    }
+  } catch (_) { /* app offline */ }
+}
+
+function directoryTable(tds) {
+  const el = document.createElement("section");
+  el.className = "card wide";
+  el.dataset.id = "directory";
+  el.innerHTML = `<h2>Thing Directory</h2><div class="meta">${tds.length} registered Thing Descriptions — <a href="/things" style="color:var(--accent)">/things</a> · <a href="/.well-known/wot" style="color:var(--accent)">directory TD</a></div>
+    <table><thead><tr><th>id</th><th>title</th><th>protocols</th><th>expires</th></tr></thead><tbody>
+    ${tds.map((t) => `<tr><td>${esc(t.id)}</td><td>${esc(t.title)}</td><td>${esc(protocols(t).join(", "))}</td><td>${esc(t.registration?.expires ? new Date(t.registration.expires).toLocaleTimeString() : "–")}</td></tr>`).join("")}
+    </tbody></table>`;
+  return el;
+}
+
+async function load() {
+  const tds = await (await fetch("/things")).json();
+  state.tds = tds;
+  const byId = Object.fromEntries(tds.map((t) => [t.id, t]));
+  const proxies = tds.filter((t) => t.id.startsWith("urn:wot:gateway:urn:wot:device:"));
+  const app = tds.find((t) => t.id.startsWith("urn:wot:app:"));
+  const sims = tds.filter((t) => t.id.startsWith("urn:wot:sim:")).length;
+  $("#summary").textContent = `${tds.length} Things registered · ${proxies.length} devices proxied by the gateway${sims ? ` · ${sims} simulated devices` : ""}`;
+
+  const signature = proxies.map((p) => p.id + protocols(byId[p.id.replace("urn:wot:gateway:", "")] || {}).join()).join() + (app ? app.id : "");
+  const cards = $("#cards");
+  if (signature !== state.built) {
+    state.built = signature;
+    cards.innerHTML = "";
+    if (app) cards.append(appCard(app));
+    for (const p of proxies) cards.append(deviceCard(p, byId[p.id.replace("urn:wot:gateway:", "")]));
+    cards.append(directoryTable(tds));
+  } else {
+    const old = $('[data-id="directory"]', cards);
+    if (old) old.replaceWith(directoryTable(tds));
+  }
+  if (app) refreshApp(app, $(`[data-id="${CSS.escape(app.id)}"]`, cards));
+  for (const p of proxies) refreshCard(p, $(`[data-id="${CSS.escape(p.id)}"]`, cards));
+}
+
+load();
+setInterval(() => load().catch(() => {}), 2000);
+</script>
+</body>
+</html>

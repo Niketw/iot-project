@@ -1,0 +1,71 @@
+{
+  "@context": [
+    "https://www.w3.org/2022/wot/td/v1.1",
+    {
+      "saref": "https://w3id.org/saref#",
+      "bldg": "https://example.org/smart-building#",
+      "cov": "http://www.example.org/coap-binding#",
+      "mqv": "http://www.example.org/mqtt-binding#"
+    }
+  ],
+  "@type": ["saref:TemperatureSensor"],
+  "id": "urn:wot:device:temperature-sensor-1",
+  "title": "Temperature Sensor",
+  "description": "DHT22 temperature and humidity sensor. Native protocol: MQTT (Mosquitto). Property values are published as retained messages.",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": "nosec_sc",
+  "properties": {
+    "temperature": {
+      "title": "Temperature",
+      "type": "number",
+      "unit": "degree Celsius",
+      "readOnly": true,
+      "observable": false,
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/temperature-sensor/properties/temperature",
+          "op": ["readproperty"],
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "humidity": {
+      "title": "Relative humidity",
+      "type": "number",
+      "unit": "percent",
+      "readOnly": true,
+      "observable": false,
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/temperature-sensor/properties/humidity",
+          "op": ["readproperty"],
+          "contentType": "application/json"
+        }
+      ]
+    }
+  },
+  "events": {
+    "measurement": {
+      "title": "New measurement",
+      "description": "Emitted after every sensor reading (every SENSOR_INTERVAL_S seconds). ts = Unix time in ms at the device.",
+      "data": {
+        "type": "object",
+        "properties": {
+          "temperature": { "type": "number" },
+          "humidity": { "type": "number" },
+          "ts": { "type": "number" },
+          "seq": { "type": "integer" },
+          "simulated": { "type": "boolean" }
+        },
+        "required": ["temperature", "ts"]
+      },
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/temperature-sensor/events/measurement",
+          "op": ["subscribeevent"],
+          "contentType": "application/json"
+        }
+      ]
+    }
+  }
+}

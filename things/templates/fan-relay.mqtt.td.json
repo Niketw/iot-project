@@ -1,0 +1,81 @@
+{
+  "@context": [
+    "https://www.w3.org/2022/wot/td/v1.1",
+    {
+      "saref": "https://w3id.org/saref#",
+      "bldg": "https://example.org/smart-building#",
+      "cov": "http://www.example.org/coap-binding#",
+      "mqv": "http://www.example.org/mqtt-binding#"
+    }
+  ],
+  "@type": ["saref:Switch", "bldg:FanController"],
+  "id": "urn:wot:device:fan-relay-1",
+  "title": "Fan Relay",
+  "description": "Relay module (or LED) switching a small DC fan. Native protocol: MQTT (Mosquitto). Same affordances as the CoAP variant - only the forms differ.",
+  "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+  "security": "nosec_sc",
+  "properties": {
+    "on": {
+      "title": "Fan is on",
+      "type": "boolean",
+      "observable": false,
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/fan-relay/properties/on",
+          "op": ["readproperty"],
+          "mqv:retain": true,
+          "contentType": "application/json"
+        },
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/fan-relay/properties/on/set",
+          "op": ["writeproperty"],
+          "mqv:qos": "1",
+          "contentType": "application/json"
+        }
+      ]
+    }
+  },
+  "actions": {
+    "turnOn": {
+      "title": "Switch the fan on",
+      "idempotent": true,
+      "forms": [
+        { "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/fan-relay/actions/turnOn", "op": ["invokeaction"], "mqv:qos": "1", "contentType": "application/json" }
+      ]
+    },
+    "turnOff": {
+      "title": "Switch the fan off",
+      "idempotent": true,
+      "forms": [
+        { "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/fan-relay/actions/turnOff", "op": ["invokeaction"], "mqv:qos": "1", "contentType": "application/json" }
+      ]
+    },
+    "toggle": {
+      "title": "Toggle the fan",
+      "forms": [
+        { "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/fan-relay/actions/toggle", "op": ["invokeaction"], "mqv:qos": "1", "contentType": "application/json" }
+      ]
+    }
+  },
+  "events": {
+    "stateChanged": {
+      "title": "Fan state changed",
+      "data": {
+        "type": "object",
+        "properties": {
+          "on": { "type": "boolean" },
+          "ts": { "type": "number" },
+          "seq": { "type": "integer" }
+        },
+        "required": ["on", "ts"]
+      },
+      "forms": [
+        {
+          "href": "mqtt://{{WOT_HOST}}:{{MQTT_PORT}}/building/room1/fan-relay/events/stateChanged",
+          "op": ["subscribeevent", "unsubscribeevent"],
+          "contentType": "application/json"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,5 @@
+aiohttp>=3.9,<4
+aiocoap>=0.4.7,<0.5
+paho-mqtt>=2.0,<3
+# Optional - only needed for DHT_BACKEND=adafruit (install.sh installs it with --adafruit-dht):
+# adafruit-circuitpython-dht
