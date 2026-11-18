@@ -62,6 +62,10 @@ case "$cmd" in
       unit=$s; [ "$s" != mosquitto ] && unit="wot-$s"
       st=$(systemctl is-active "$unit" 2>/dev/null)
       printf '  %-14s %s\n' "$s" "$( [ "$st" = active ] && printf '\033[32m%s\033[0m' "$st" || printf '\033[31m%s\033[0m' "$st")"
+      if [ "$st" != active ]; then  # show why it is not running
+        why=$(journalctl -u "$unit" -n 80 --no-pager 2>/dev/null | grep -E "ERROR|Error|error:|Traceback|Exception" | grep -v "^--" | tail -1 | sed -E 's/^.*(ERROR|Error)/\1/' | cut -c1-160)
+        [ -n "$why" ] && printf '      \033[33m%s\033[0m\n' "$why"
+      fi
     done
     echo
     if curl -sf "$GW/wot-gateway/properties/proxies" -o /tmp/wot-proxies.json 2>/dev/null; then
